@@ -10,8 +10,8 @@
     <link rel="preconnect" href="https://fonts.bunny.net">
     <link href="https://fonts.bunny.net/css?family=instrument-sans:400,500,600" rel="stylesheet" />
     
-    <!-- Styles / Scripts -->
-    @vite(['resources/css/app.css', 'resources/js/app.js'])
+    <!-- TailwindCSS via CDN (temporary) -->
+    <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-gray-100 min-h-screen">
     <div class="container mx-auto px-4 py-8">
@@ -44,6 +44,9 @@
                         <button id="stop-recording" class="bg-gray-500 hover:bg-gray-600 text-white font-semibold py-3 px-6 rounded-lg transition duration-200" disabled>
                             ⏹️ Stop Recording
                         </button>
+                        <div id="recording-timer" class="mt-2 text-sm text-gray-600 hidden">
+                            Recording: <span id="timer">00:00</span>
+                        </div>
                     </div>
 
                     <!-- Transcriptions Display -->
@@ -68,6 +71,8 @@
         let currentThreadId = null;
         let mediaRecorder = null;
         let audioChunks = [];
+        let recordingStartTime = null;
+        let timerInterval = null;
 
         // DOM Elements
         const startConversationBtn = document.getElementById('start-conversation');
@@ -79,12 +84,41 @@
         const recordingControls = document.getElementById('recording-controls');
         const transcriptionList = document.getElementById('transcription-list');
         const debugContent = document.getElementById('debug-content');
+        const recordingTimer = document.getElementById('recording-timer');
+        const timerSpan = document.getElementById('timer');
 
         // Utility function to update debug info
         function updateDebug(message) {
             const timestamp = new Date().toLocaleTimeString();
             debugContent.textContent += `[${timestamp}] ${message}\n`;
             debugContent.scrollTop = debugContent.scrollHeight;
+        }
+
+        // Format time for timer display
+        function formatTime(seconds) {
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        // Update recording timer
+        function updateTimer() {
+            if (recordingStartTime) {
+                const elapsed = (Date.now() - recordingStartTime) / 1000;
+                timerSpan.textContent = formatTime(elapsed);
+            }
+        }
+
+        // Add transcription to the list
+        function addTranscription(text, timestamp) {
+            const transcriptionDiv = document.createElement('div');
+            transcriptionDiv.className = 'p-3 bg-blue-50 rounded-lg border-l-4 border-blue-400';
+            transcriptionDiv.innerHTML = `
+                <div class="text-sm text-gray-500 mb-1">${timestamp}</div>
+                <div class="text-gray-800">${text}</div>
+            `;
+            transcriptionList.appendChild(transcriptionDiv);
+            transcriptionList.scrollTop = transcriptionList.scrollHeight;
         }
 
         // Start new conversation
@@ -111,6 +145,9 @@
                     statusDiv.classList.remove('hidden');
                     recordingControls.classList.remove('hidden');
                     startConversationBtn.textContent = 'Start New Conversation';
+                    
+                    // Clear previous transcriptions
+                    transcriptionList.innerHTML = '';
                 } else {
                     updateDebug('Failed to start conversation');
                 }
@@ -118,6 +155,129 @@
                 updateDebug(`Error: ${error.message}`);
             }
         });
+
+        // Start recording
+        startRecordingBtn.addEventListener('click', async () => {
+            if (!currentThreadId) {
+                updateDebug('No active conversation. Please start a conversation first.');
+                return;
+            }
+
+            try {
+                updateDebug('Requesting microphone access...');
+                
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        sampleRate: 44100
+                    } 
+                });
+                
+                updateDebug('Microphone access granted');
+                
+                audioChunks = [];
+                mediaRecorder = new MediaRecorder(stream, {
+                    mimeType: 'audio/webm;codecs=opus'
+                });
+                
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0) {
+                        audioChunks.push(event.data);
+                    }
+                };
+                
+                mediaRecorder.onstop = async () => {
+                    updateDebug('Recording stopped, processing audio...');
+                    
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    const duration = (Date.now() - recordingStartTime) / 1000;
+                    
+                    // Upload and transcribe
+                    await uploadAudio(audioBlob, duration);
+                    
+                    // Stop all tracks to release microphone
+                    stream.getTracks().forEach(track => track.stop());
+                };
+                
+                // Start recording
+                mediaRecorder.start();
+                recordingStartTime = Date.now();
+                
+                // Update UI
+                startRecordingBtn.disabled = true;
+                stopRecordingBtn.disabled = false;
+                statusText.textContent = 'Recording...';
+                recordingTimer.classList.remove('hidden');
+                
+                // Start timer
+                timerInterval = setInterval(updateTimer, 100);
+                
+                updateDebug('Recording started');
+                
+            } catch (error) {
+                updateDebug(`Error accessing microphone: ${error.message}`);
+                alert('Could not access microphone. Please check permissions.');
+            }
+        });
+
+        // Stop recording
+        stopRecordingBtn.addEventListener('click', () => {
+            if (mediaRecorder && mediaRecorder.state === 'recording') {
+                mediaRecorder.stop();
+                
+                // Update UI
+                startRecordingBtn.disabled = false;
+                stopRecordingBtn.disabled = true;
+                statusText.textContent = 'Processing...';
+                recordingTimer.classList.add('hidden');
+                
+                // Stop timer
+                if (timerInterval) {
+                    clearInterval(timerInterval);
+                    timerInterval = null;
+                }
+                
+                updateDebug('Stopping recording...');
+            }
+        });
+
+        // Upload audio for transcription
+        async function uploadAudio(audioBlob, duration) {
+            try {
+                const formData = new FormData();
+                formData.append('audio', audioBlob, 'recording.webm');
+                formData.append('thread_id', currentThreadId);
+                formData.append('duration', duration);
+                
+                updateDebug(`Uploading audio (${duration.toFixed(2)}s)...`);
+                
+                const response = await fetch('/api/conversation/upload-audio', {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+                    },
+                    body: formData
+                });
+                
+                const data = await response.json();
+                updateDebug(`Upload response: ${JSON.stringify(data)}`);
+                
+                if (data.success) {
+                    const timestamp = new Date().toLocaleTimeString();
+                    addTranscription(data.transcription, timestamp);
+                    statusText.textContent = 'Ready to record';
+                    updateDebug('Transcription completed successfully');
+                } else {
+                    updateDebug(`Transcription failed: ${data.error}`);
+                    statusText.textContent = 'Transcription failed';
+                }
+                
+            } catch (error) {
+                updateDebug(`Error uploading audio: ${error.message}`);
+            }
+        }
 
         // Test API endpoint
         updateDebug('Voice Transcription App loaded');

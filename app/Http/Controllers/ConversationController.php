@@ -22,21 +22,28 @@ class ConversationController extends Controller
 		return view('transcription.index');
 	}
 
-	public function startConversation(): JsonResponse
+	public function start(): JsonResponse
 	{
-		$threadId = Str::uuid()->toString();
-		
-		$conversation = Conversation::create([
-			'thread_id' => $threadId,
-			'started_at' => now(),
-			'last_activity_at' => now(),
-		]);
+		try {
+			$threadId = Str::uuid()->toString();
+			
+			$conversation = Conversation::create([
+				'thread_id' => $threadId,
+				'started_at' => now(),
+				'last_activity_at' => now(),
+			]);
 
-		return response()->json([
-			'success' => true,
-			'thread_id' => $threadId,
-			'conversation_id' => $conversation->id,
-		]);
+			return response()->json([
+				'success' => true,
+				'thread_id' => $threadId,
+				'conversation_id' => $conversation->id,
+			]);
+		} catch (\Exception $e) {
+			return response()->json([
+				'success' => false,
+				'error' => 'Failed to start conversation: ' . $e->getMessage(),
+			], 500);
+		}
 	}
 
 	public function uploadAudio(Request $request): JsonResponse
@@ -65,8 +72,8 @@ class ConversationController extends Controller
 				'status' => 'processing',
 			]);
 
-			// Process transcription
-			$result = $this->whisperService->transcribeAudio($audioPath);
+			// Process transcription - pass the uploaded file directly
+			$result = $this->whisperService->transcribeAudio($request->file('audio'));
 
 			if ($result['success']) {
 				$transcription->update([
