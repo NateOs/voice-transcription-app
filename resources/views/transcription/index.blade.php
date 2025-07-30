@@ -90,6 +90,21 @@
         .button-recording:hover {
             background: linear-gradient(45deg, #dc2626, #b91c1c);
         }
+         body {
+        overflow: hidden;
+    }
+    .overflow-y-auto {
+        height: 100vh;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
+    }
+    .overflow-y-auto::-webkit-scrollbar {
+        width: 6px;
+    }
+    .overflow-y-auto::-webkit-scrollbar-thumb {
+        background-color: rgba(255, 255, 255, 0.3);
+        border-radius: 3px;
+    }
     </style>
 </head>
 <body class="min-h-screen relative overflow-hidden">
@@ -97,54 +112,59 @@
     <div class="floating-orb orb-1"></div>
     <div class="floating-orb orb-2"></div>
     
-    <div class="relative z-10 min-h-screen flex flex-col">
-        <!-- Header -->
-        <header class="text-center pt-16 pb-8">
-            <h1 class="text-5xl font-bold text-white mb-4">Welcome to Darli</h1>
-            <p class="text-white/80 text-lg">Your AI-powered voice transcription assistant</p>
-        </header>
+    <div class="relative z-10 min-h-screen flex">
+        <!-- Left Column -->
+        <div class="flex-1 flex flex-col">
+            <!-- Header -->
+            <header class="text-center pt-16 pb-8">
+                <h1 class="text-5xl font-bold text-white mb-4">Welcome to Darli</h1>
+                <p class="text-white/80 text-lg">Your AI-powered voice transcription assistant</p>
+            </header>
 
-        <!-- Main Content -->
-        <div class="flex-1 flex flex-col items-center justify-center px-4">
-            <!-- Recording Button -->
-            <div class="text-center mb-8">
-                <button id="main-button" class="bg-black hover:bg-gray-800 text-white font-semibold py-4 px-8 rounded-lg transition-all duration-300 transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-white/30 min-w-[200px]">
-                    Start Transcription
-                </button>
+            <!-- Main Content -->
+            <div class="flex-1 flex flex-col items-center justify-center px-4">
+                <!-- Recording Button -->
+                <div class="text-center mb-8">
+                    <button id="main-button" class="bg-black hover:bg-gray-800 text-white font-semibold py-4 px-8 rounded-lg transition-all duration-300 transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-white/30 min-w-[200px]">
+                        Start Transcription
+                    </button>
                     <div id="status-text" class="mt-2 text-white/80"></div>
 
-                <!-- Recording Status -->
-                <div id="recording-status" class="mt-4 text-white/80 hidden">
-                    <div class="flex items-center justify-center space-x-2">
-                        <div class="w-3 h-3 bg-red-500 rounded-full recording-pulse"></div>
-                        <span>Recording... <span id="timer">00:00</span></span>
+                    <!-- Recording Status -->
+                    <div id="recording-status" class="mt-4 text-white/80 hidden">
+                        <div class="flex items-center justify-center space-x-2">
+                            <div class="w-3 h-3 bg-red-500 rounded-full recording-pulse"></div>
+                            <span>Recording... <span id="timer">00:00</span></span>
+                        </div>
                     </div>
                 </div>
-            </div>
 
-            <!-- Transcriptions Display -->
-            <div id="transcriptions-container" class="w-full max-w-4xl hidden">
-                <div class="bg-white/10 backdrop-blur-lg rounded-2xl p-6 shadow-2xl">
-                    <h3 class="text-xl font-semibold text-white mb-4 text-center">Live Transcription</h3>
-                    <div id="transcription-list" class="space-y-3 max-h-96 overflow-y-auto">
-                        <!-- Transcriptions will be added here -->
-                    </div>
-                </div>
+                <!-- Waveform Visualization -->
+                <div id="waveform" class="w-full max-w-2xl h-32"></div>
             </div>
         </div>
 
-        <!-- Debug Panel (Hidden by default) -->
-        <div id="debug-panel" class="fixed bottom-4 right-4 bg-black/80 text-white p-4 rounded-lg max-w-md hidden">
-            <h4 class="font-semibold mb-2">Debug Info</h4>
-            <pre id="debug-content" class="text-xs whitespace-pre-wrap max-h-32 overflow-y-auto"></pre>
+        <!-- Right Column - Transcriptions -->
+        <div class="w-1/3 bg-white/10 backdrop-blur-lg p-6 overflow-y-auto">
+            <h3 class="text-xl font-semibold text-white mb-4">Transcript</h3>
+            <div id="transcription-list" class="space-y-4">
+                <!-- Transcriptions will be added here -->
+            </div>
         </div>
-        
-        <!-- Toggle Debug Button -->
-        <button id="toggle-debug" class="fixed bottom-4 left-4 bg-white/20 text-white p-2 rounded-full hover:bg-white/30 transition-colors">
-            🐛
-        </button>
     </div>
-      <script>
+
+    <!-- Debug Panel (Hidden by default) -->
+    <div id="debug-panel" class="fixed bottom-4 right-4 bg-black/80 text-white p-4 rounded-lg max-w-md hidden">
+        <h4 class="font-semibold mb-2">Debug Info</h4>
+        <pre id="debug-content" class="text-xs whitespace-pre-wrap max-h-32 overflow-y-auto"></pre>
+    </div>
+    
+    <!-- Toggle Debug Button -->
+    <button id="toggle-debug" class="fixed bottom-4 left-4 bg-white/20 text-white p-2 rounded-full hover:bg-white/30 transition-colors">
+        🐛
+    </button>
+    </div>
+    <script>
         let currentThreadId = null;
         let mediaRecorder = null;
         let audioChunks = [];
@@ -187,19 +207,15 @@ const timerSpan = document.getElementById('timer');
         }
 
         // Add transcription to the list
-        function addTranscription(text, timestamp) {
-            const transcriptionDiv = document.createElement('div');
-            transcriptionDiv.className = 'transcription-item p-4 bg-white/20 backdrop-blur-sm rounded-lg border border-white/30';
-            transcriptionDiv.innerHTML = `
-                <div class="text-sm text-white/70 mb-2">${timestamp}</div>
-                <div class="text-white">${text}</div>
-            `;
-            transcriptionList.appendChild(transcriptionDiv);
-            transcriptionList.scrollTop = transcriptionList.scrollHeight;
-            
-            // Show transcriptions container if hidden
-            transcriptionsContainer.classList.remove('hidden');
-        }
+       function addTranscription(text, timestamp) {
+    const transcriptionDiv = document.createElement('div');
+    transcriptionDiv.className = 'bg-white/20 backdrop-blur-sm rounded-lg border border-white/30 p-4 mb-4';
+    transcriptionDiv.innerHTML = `
+        <div class="text-sm text-white/70 mb-2">${timestamp}</div>
+        <div class="text-white">${text}</div>
+    `;
+    transcriptionList.prepend(transcriptionDiv); // Add new transcriptions to the top
+}
 
         // Start new conversation
         async function startConversation() {
