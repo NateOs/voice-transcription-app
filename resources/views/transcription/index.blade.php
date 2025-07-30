@@ -12,80 +12,157 @@
     
     <!-- TailwindCSS via CDN (temporary) -->
     <script src="https://cdn.tailwindcss.com"></script>
+    
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Instrument Sans', sans-serif;
+        }
+        
+        .recording-pulse {
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+        
+        @keyframes pulse {
+            0% {
+                box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+            }
+            70% {
+                box-shadow: 0 0 0 10px rgba(239, 68, 68, 0);
+            }
+            100% {
+                box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+            }
+        }
+        
+        .transcription-item {
+            animation: slideIn 0.3s ease-out;
+        }
+        
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .floating-orb {
+            position: absolute;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+        }
+        
+        .orb-1 {
+            width: 300px;
+            height: 300px;
+            top: 10%;
+            right: 10%;
+            animation: float 6s ease-in-out infinite;
+        }
+        
+        .orb-2 {
+            width: 200px;
+            height: 200px;
+            bottom: 20%;
+            left: 15%;
+            animation: float 8s ease-in-out infinite reverse;
+        }
+        
+        @keyframes float {
+            0%, 100% {
+                transform: translateY(0px);
+            }
+            50% {
+                transform: translateY(-20px);
+            }
+        }
+        
+        .button-recording {
+            background: linear-gradient(45deg, #ef4444, #dc2626);
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+        
+        .button-recording:hover {
+            background: linear-gradient(45deg, #dc2626, #b91c1c);
+        }
+    </style>
 </head>
-<body class="bg-gray-100 min-h-screen">
-    <div class="container mx-auto px-4 py-8">
-        <div class="max-w-4xl mx-auto">
-            <header class="text-center mb-8">
-                <h1 class="text-4xl font-bold text-gray-800 mb-2">Voice Transcription App</h1>
-                <p class="text-gray-600">Record your voice and get real-time transcriptions</p>
-            </header>
+<body class="min-h-screen relative overflow-hidden">
+    <!-- Floating Orbs for Design -->
+    <div class="floating-orb orb-1"></div>
+    <div class="floating-orb orb-2"></div>
+    
+    <div class="relative z-10 min-h-screen flex flex-col">
+        <!-- Header -->
+        <header class="text-center pt-16 pb-8">
+            <h1 class="text-5xl font-bold text-white mb-4">Welcome to Darli</h1>
+            <p class="text-white/80 text-lg">Your AI-powered voice transcription assistant</p>
+        </header>
 
-            <div class="bg-white rounded-lg shadow-lg p-6">
-                <div id="app">
-                    <!-- Recording Controls -->
-                    <div class="text-center mb-6">
-                        <button id="start-conversation" class="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-3 px-6 rounded-lg transition duration-200">
-                            Start New Conversation
-                        </button>
+        <!-- Main Content -->
+        <div class="flex-1 flex flex-col items-center justify-center px-4">
+            <!-- Recording Button -->
+            <div class="text-center mb-8">
+                <button id="main-button" class="bg-black hover:bg-gray-800 text-white font-semibold py-4 px-8 rounded-lg transition-all duration-300 transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-white/30 min-w-[200px]">
+                    Start Transcription
+                </button>
+                    <div id="status-text" class="mt-2 text-white/80"></div>
+
+                <!-- Recording Status -->
+                <div id="recording-status" class="mt-4 text-white/80 hidden">
+                    <div class="flex items-center justify-center space-x-2">
+                        <div class="w-3 h-3 bg-red-500 rounded-full recording-pulse"></div>
+                        <span>Recording... <span id="timer">00:00</span></span>
                     </div>
+                </div>
+            </div>
 
-                    <!-- Status Display -->
-                    <div id="status" class="mb-4 p-4 bg-gray-50 rounded-lg hidden">
-                        <p class="text-sm text-gray-600">Status: <span id="status-text">Ready</span></p>
-                        <p class="text-sm text-gray-600">Thread ID: <span id="thread-id">-</span></p>
-                    </div>
-
-                    <!-- Recording Controls -->
-                    <div id="recording-controls" class="text-center mb-6 hidden">
-                        <button id="start-recording" class="bg-red-500 hover:bg-red-600 text-white font-semibold py-3 px-6 rounded-lg mr-4 transition duration-200">
-                            🎤 Start Recording
-                        </button>
-                        <button id="stop-recording" class="bg-gray-500 hover:bg-gray-600 text-white font-semibold py-3 px-6 rounded-lg transition duration-200" disabled>
-                            ⏹️ Stop Recording
-                        </button>
-                        <div id="recording-timer" class="mt-2 text-sm text-gray-600 hidden">
-                            Recording: <span id="timer">00:00</span>
-                        </div>
-                    </div>
-
-                    <!-- Transcriptions Display -->
-                    <div id="transcriptions" class="space-y-4">
-                        <h3 class="text-lg font-semibold text-gray-800 mb-4">Transcriptions</h3>
-                        <div id="transcription-list" class="space-y-2">
-                            <!-- Transcriptions will be added here -->
-                        </div>
-                    </div>
-
-                    <!-- Debug/Response Area -->
-                    <div id="debug" class="mt-6 p-4 bg-gray-50 rounded-lg">
-                        <h4 class="font-semibold text-gray-700 mb-2">Debug Information</h4>
-                        <pre id="debug-content" class="text-xs text-gray-600 whitespace-pre-wrap"></pre>
+            <!-- Transcriptions Display -->
+            <div id="transcriptions-container" class="w-full max-w-4xl hidden">
+                <div class="bg-white/10 backdrop-blur-lg rounded-2xl p-6 shadow-2xl">
+                    <h3 class="text-xl font-semibold text-white mb-4 text-center">Live Transcription</h3>
+                    <div id="transcription-list" class="space-y-3 max-h-96 overflow-y-auto">
+                        <!-- Transcriptions will be added here -->
                     </div>
                 </div>
             </div>
         </div>
-    </div>
 
-    <script>
+        <!-- Debug Panel (Hidden by default) -->
+        <div id="debug-panel" class="fixed bottom-4 right-4 bg-black/80 text-white p-4 rounded-lg max-w-md hidden">
+            <h4 class="font-semibold mb-2">Debug Info</h4>
+            <pre id="debug-content" class="text-xs whitespace-pre-wrap max-h-32 overflow-y-auto"></pre>
+        </div>
+        
+        <!-- Toggle Debug Button -->
+        <button id="toggle-debug" class="fixed bottom-4 left-4 bg-white/20 text-white p-2 rounded-full hover:bg-white/30 transition-colors">
+            🐛
+        </button>
+    </div>
+      <script>
         let currentThreadId = null;
         let mediaRecorder = null;
         let audioChunks = [];
         let recordingStartTime = null;
         let timerInterval = null;
+        let isRecording = false;
+        let conversationStarted = false;
 
         // DOM Elements
-        const startConversationBtn = document.getElementById('start-conversation');
-        const startRecordingBtn = document.getElementById('start-recording');
-        const stopRecordingBtn = document.getElementById('stop-recording');
-        const statusDiv = document.getElementById('status');
-        const statusText = document.getElementById('status-text');
-        const threadIdSpan = document.getElementById('thread-id');
-        const recordingControls = document.getElementById('recording-controls');
+        const mainButton = document.getElementById('main-button');
+const recordingStatus = document.getElementById('recording-status');
+const statusText = document.getElementById('status-text');  // Add this line
+const timerSpan = document.getElementById('timer');
         const transcriptionList = document.getElementById('transcription-list');
+        const transcriptionsContainer = document.getElementById('transcriptions-container');
         const debugContent = document.getElementById('debug-content');
-        const recordingTimer = document.getElementById('recording-timer');
-        const timerSpan = document.getElementById('timer');
+        const debugPanel = document.getElementById('debug-panel');
+        const toggleDebugBtn = document.getElementById('toggle-debug');
 
         // Utility function to update debug info
         function updateDebug(message) {
@@ -112,19 +189,23 @@
         // Add transcription to the list
         function addTranscription(text, timestamp) {
             const transcriptionDiv = document.createElement('div');
-            transcriptionDiv.className = 'p-3 bg-blue-50 rounded-lg border-l-4 border-blue-400';
+            transcriptionDiv.className = 'transcription-item p-4 bg-white/20 backdrop-blur-sm rounded-lg border border-white/30';
             transcriptionDiv.innerHTML = `
-                <div class="text-sm text-gray-500 mb-1">${timestamp}</div>
-                <div class="text-gray-800">${text}</div>
+                <div class="text-sm text-white/70 mb-2">${timestamp}</div>
+                <div class="text-white">${text}</div>
             `;
             transcriptionList.appendChild(transcriptionDiv);
             transcriptionList.scrollTop = transcriptionList.scrollHeight;
+            
+            // Show transcriptions container if hidden
+            transcriptionsContainer.classList.remove('hidden');
         }
 
         // Start new conversation
-        startConversationBtn.addEventListener('click', async () => {
+        async function startConversation() {
             try {
                 updateDebug('Starting new conversation...');
+                statusText.textContent = 'Starting conversation...';
                 
                 const response = await fetch('/api/conversation/start', {
                     method: 'POST',
@@ -140,148 +221,154 @@
                 
                 if (data.success) {
                     currentThreadId = data.thread_id;
-                    threadIdSpan.textContent = currentThreadId;
-                    statusText.textContent = 'Conversation started';
-                    statusDiv.classList.remove('hidden');
-                    recordingControls.classList.remove('hidden');
-                    startConversationBtn.textContent = 'Start New Conversation';
+                    conversationStarted = true;
+                    statusText.textContent = 'Ready to record';
+                    mainButton.textContent = '🎤 Start Recording';
                     
                     // Clear previous transcriptions
                     transcriptionList.innerHTML = '';
+                    transcriptionsContainer.classList.add('hidden');
+                    
+                    updateDebug('Conversation started successfully');
                 } else {
                     updateDebug('Failed to start conversation');
+                    statusText.textContent = 'Failed to start conversation';
                 }
             } catch (error) {
                 updateDebug(`Error: ${error.message}`);
-            }
-        });
-
-        // Start recording
-        startRecordingBtn.addEventListener('click', async () => {
-            if (!currentThreadId) {
-                updateDebug('No active conversation. Please start a conversation first.');
-                return;
-            }
-
-            try {
-                updateDebug('Requesting microphone access...');
-                
-                const stream = await navigator.mediaDevices.getUserMedia({ 
-                    audio: {
-                        echoCancellation: true,
-                        noiseSuppression: true,
-                        sampleRate: 44100
-                    } 
-                });
-                
-                updateDebug('Microphone access granted');
-                
-                audioChunks = [];
-                mediaRecorder = new MediaRecorder(stream, {
-                    mimeType: 'audio/webm;codecs=opus'
-                });
-                
-                mediaRecorder.ondataavailable = (event) => {
-                    if (event.data.size > 0) {
-                        audioChunks.push(event.data);
-                    }
-                };
-                
-                mediaRecorder.onstop = async () => {
-                    updateDebug('Recording stopped, processing audio...');
-                    
-                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-                    const duration = (Date.now() - recordingStartTime) / 1000;
-                    
-                    // Upload and transcribe
-                    await uploadAudio(audioBlob, duration);
-                    
-                    // Stop all tracks to release microphone
-                    stream.getTracks().forEach(track => track.stop());
-                };
-                
-                // Start recording
-                mediaRecorder.start();
-                recordingStartTime = Date.now();
-                
-                // Update UI
-                startRecordingBtn.disabled = true;
-                stopRecordingBtn.disabled = false;
-                statusText.textContent = 'Recording...';
-                recordingTimer.classList.remove('hidden');
-                
-                // Start timer
-                timerInterval = setInterval(updateTimer, 100);
-                
-                updateDebug('Recording started');
-                
-            } catch (error) {
-                updateDebug(`Error accessing microphone: ${error.message}`);
-                alert('Could not access microphone. Please check permissions.');
-            }
-        });
-
-        // Stop recording
-        stopRecordingBtn.addEventListener('click', () => {
-            if (mediaRecorder && mediaRecorder.state === 'recording') {
-                mediaRecorder.stop();
-                
-                // Update UI
-                startRecordingBtn.disabled = false;
-                stopRecordingBtn.disabled = true;
-                statusText.textContent = 'Processing...';
-                recordingTimer.classList.add('hidden');
-                
-                // Stop timer
-                if (timerInterval) {
-                    clearInterval(timerInterval);
-                    timerInterval = null;
-                }
-                
-                updateDebug('Stopping recording...');
-            }
-        });
-
-        // Upload audio for transcription
-        async function uploadAudio(audioBlob, duration) {
-            try {
-                const formData = new FormData();
-                formData.append('audio', audioBlob, 'recording.webm');
-                formData.append('thread_id', currentThreadId);
-                formData.append('duration', duration);
-                
-                updateDebug(`Uploading audio (${duration.toFixed(2)}s)...`);
-                
-                const response = await fetch('/api/conversation/upload-audio', {
-                    method: 'POST',
-                    headers: {
-                        'Accept': 'application/json',
-                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
-                    },
-                    body: formData
-                });
-                
-                const data = await response.json();
-                updateDebug(`Upload response: ${JSON.stringify(data)}`);
-                
-                if (data.success) {
-                    const timestamp = new Date().toLocaleTimeString();
-                    addTranscription(data.transcription, timestamp);
-                    statusText.textContent = 'Ready to record';
-                    updateDebug('Transcription completed successfully');
-                } else {
-                    updateDebug(`Transcription failed: ${data.error}`);
-                    statusText.textContent = 'Transcription failed';
-                }
-                
-            } catch (error) {
-                updateDebug(`Error uploading audio: ${error.message}`);
+                statusText.textContent = 'Error starting conversation';
             }
         }
 
-        // Test API endpoint
-        updateDebug('Voice Transcription App loaded');
-        updateDebug('Click "Start New Conversation" to begin');
-    </script>
+        // Start recording
+      // Start recording
+async function startRecording() {
+    try {
+        updateDebug('Requesting microphone access...');
+        statusText.textContent = 'Requesting microphone access...';
+        
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                sampleRate: 44100
+            } 
+        });
+        
+        updateDebug('Microphone access granted');
+        
+        audioChunks = [];
+        mediaRecorder = new MediaRecorder(stream, {
+            mimeType: 'audio/webm;codecs=opus'
+        });
+        
+        mediaRecorder.ondataavailable = (event) => {
+            if (event.data.size > 0) {
+                audioChunks.push(event.data);
+            }
+        };
+        
+        mediaRecorder.onstop = async () => {
+            updateDebug('Recording stopped, processing audio...');
+            statusText.textContent = 'Processing audio...';
+            
+            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+            const duration = (Date.now() - recordingStartTime) / 1000;
+            
+            // Upload and transcribe
+            await uploadAudio(audioBlob, duration);
+            
+            // Stop all tracks to release microphone
+            stream.getTracks().forEach(track => track.stop());
+        };
+        
+        // Start recording
+        mediaRecorder.start();
+        recordingStartTime = Date.now();
+        isRecording = true;
+        
+        // Update UI
+        mainButton.textContent = '⏹️ Stop Recording';
+        mainButton.classList.add('button-recording', 'recording-pulse');
+        recordingStatus.classList.remove('hidden');
+        statusText.textContent = 'Recording in progress...';
+        
+        // Start the timer
+        timerInterval = setInterval(updateTimer, 1000);
+
+        updateDebug('Recording started');
+    } catch (error) {
+        updateDebug(`Error starting recording: ${error.message}`);
+        statusText.textContent = 'Error starting recording';
+        console.error('Error starting recording:', error);
+    }
+}
+
+// Stop recording
+async function stopRecording() {
+    if (mediaRecorder && isRecording) {
+        mediaRecorder.stop();
+        isRecording = false;
+        clearInterval(timerInterval);
+
+        // Update UI
+        mainButton.textContent = '🎤 Start Recording';
+        mainButton.classList.remove('button-recording', 'recording-pulse');
+        recordingStatus.classList.add('hidden');
+        statusText.textContent = 'Processing...';
+
+        updateDebug('Recording stopped');
+    }
+}
+
+// Upload audio
+async function uploadAudio(audioBlob, duration) {
+    try {
+        const formData = new FormData();
+        formData.append('audio', audioBlob, 'recording.webm');
+        formData.append('thread_id', currentThreadId);
+        formData.append('duration', duration);
+
+        const response = await fetch('/api/conversation/upload-audio', {
+            method: 'POST',
+            body: formData,
+            headers: {
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
+            }
+        });
+
+        const data = await response.json();
+        updateDebug(`Upload response: ${JSON.stringify(data)}`);
+
+        if (data.success) {
+            addTranscription(data.transcription, new Date().toLocaleTimeString());
+            statusText.textContent = 'Transcription complete';
+        } else {
+            statusText.textContent = 'Failed to process audio';
+        }
+    } catch (error) {
+        updateDebug(`Error uploading audio: ${error.message}`);
+        statusText.textContent = 'Error processing audio';
+    }
+}
+
+// Event Listeners
+mainButton.addEventListener('click', async () => {
+    if (!conversationStarted) {
+        await startConversation();
+    } else if (isRecording) {
+        await stopRecording();
+    } else {
+        await startRecording();
+    }
+});
+
+toggleDebugBtn.addEventListener('click', () => {
+    debugPanel.classList.toggle('hidden');
+});
+
+// Initialize
+startConversation();
+</script>
 </body>
 </html>
