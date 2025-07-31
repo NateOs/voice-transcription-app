@@ -90,21 +90,33 @@
         .button-recording:hover {
             background: linear-gradient(45deg, #dc2626, #b91c1c);
         }
-         body {
-        overflow: hidden;
-    }
-    .overflow-y-auto {
-        height: 100vh;
-        scrollbar-width: thin;
-        scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
-    }
-    .overflow-y-auto::-webkit-scrollbar {
-        width: 6px;
-    }
-    .overflow-y-auto::-webkit-scrollbar-thumb {
-        background-color: rgba(255, 255, 255, 0.3);
-        border-radius: 3px;
-    }
+        
+        body {
+            overflow: hidden;
+        }
+        
+        .overflow-y-auto {
+            height: 100vh;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
+        }
+        
+        .overflow-y-auto::-webkit-scrollbar {
+            width: 6px;
+        }
+        
+        .overflow-y-auto::-webkit-scrollbar-thumb {
+            background-color: rgba(255, 255, 255, 0.3);
+            border-radius: 3px;
+        }
+
+        /* WaveSurfer Styling */
+        #waveform {
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
     </style>
 </head>
 <body class="min-h-screen relative overflow-hidden">
@@ -164,31 +176,34 @@
         🐛
     </button>
 
-    <script>
+    <script type="module">
+        import WaveSurfer from 'https://cdnjs.cloudflare.com/ajax/libs/wavesurfer.js/7.7.2/wavesurfer.esm.min.js'
+        import RecordPlugin from 'https://cdnjs.cloudflare.com/ajax/libs/wavesurfer.js/7.7.2/plugins/record.esm.min.js'
+
+        // Application State
         let currentThreadId = null;
-        let mediaRecorder = null;
-        let audioChunks = [];
-        let recordingStartTime = null;
-        let timerInterval = null;
-        let isRecording = false;
         let conversationStarted = false;
-        let isContinuousRecording = false;
-        
-        // Audio analysis for silence detection
+        let segmentCounter = 0;
+        let selectedDeviceId = null;
+
+        // WaveSurfer components
+        let wavesurfer = null;
+        let record = null;
+        let isRecording = false;
+
+        // Silence detection
+        let mediaRecorder = null;
+        let currentAudioChunks = [];
         let audioContext = null;
         let analyser = null;
-        let microphone = null;
-        let dataArray = null;
+        let silenceTimer = null;
+        let silenceThreshold = 0.005; // Lower threshold (was 0.01)
+        let silenceTimeout = 1500; // Shorter timeout (was 2000ms)
+        let minAudioDuration = 500; // Minimum audio duration before processing
+        let minSilenceDuration = 800; // Minimum silence before processing
         let lastSoundTime = 0;
-        let volumeCheckInterval = null;
-        let isProcessingChunk = false;
-        
-        // Silence detection configuration
-        const SILENCE_THRESHOLD = 30;
-        const SILENCE_DURATION = 3000; // 3 seconds
-        const VOLUME_CHECK_INTERVAL = 100;
-        const MIN_RECORDING_DURATION = 1000;
-        const MAX_CHUNK_DURATION = 15000; // 15 seconds max chunk size
+        let recordingStartTime = null;
+        let timerInterval = null;
 
         // DOM Elements
         const mainButton = document.getElementById('main-button');
@@ -200,115 +215,291 @@
         const debugPanel = document.getElementById('debug-panel');
         const toggleDebugBtn = document.getElementById('toggle-debug');
 
-        // Utility function to update debug info
+        // Utility Functions
         function updateDebug(message) {
             const timestamp = new Date().toLocaleTimeString();
             debugContent.textContent += `[${timestamp}] ${message}\n`;
             debugContent.scrollTop = debugContent.scrollHeight;
         }
 
-        // Format time for timer display
         function formatTime(seconds) {
             const mins = Math.floor(seconds / 60);
             const secs = Math.floor(seconds % 60);
             return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
         }
 
-        // Update recording timer
         function updateTimer() {
             if (recordingStartTime) {
                 const elapsed = (Date.now() - recordingStartTime) / 1000;
                 timerSpan.textContent = formatTime(elapsed);
+                mainButton.textContent = `⏹️ Stop Recording (${formatTime(elapsed)})`;
             }
         }
 
-        // Start audio analysis for silence detection
-        function startAudioAnalysis(stream) {
-            audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            analyser = audioContext.createAnalyser();
-            microphone = audioContext.createMediaStreamSource(stream);
-            
-            analyser.fftSize = 256;
-            const bufferLength = analyser.frequencyBinCount;
-            dataArray = new Uint8Array(bufferLength);
-            
-            microphone.connect(analyser);
-            
-            volumeCheckInterval = setInterval(checkAudioLevel, VOLUME_CHECK_INTERVAL);
-            updateDebug('Silence detection started');
-        }
-
-        function checkAudioLevel() {
-            if (!analyser || !isRecording || isProcessingChunk) return;
-            
-            analyser.getByteFrequencyData(dataArray);
-            
-            let sum = 0;
-            for (let i = 0; i < dataArray.length; i++) {
-                sum += dataArray[i];
+        // WaveSurfer Setup
+        const setupWaveSurfer = async () => {
+            if (wavesurfer) {
+                wavesurfer.destroy();
             }
-            const average = sum / dataArray.length;
-            
-            const currentTime = Date.now();
-            const chunkDuration = currentTime - lastSoundTime;
-            
-            if (average > SILENCE_THRESHOLD) {
-                lastSoundTime = currentTime;
-            } else {
-                const silenceDuration = currentTime - lastSoundTime;
-                const minRecordingMet = (currentTime - recordingStartTime) >= MIN_RECORDING_DURATION;
-                
-                // If silence detected for SILENCE_DURATION or max chunk duration reached
-                if ((silenceDuration >= SILENCE_DURATION || chunkDuration >= MAX_CHUNK_DURATION) && 
-                    minRecordingMet && audioChunks.length > 0) {
-                    updateDebug(`Processing chunk after ${silenceDuration}ms of silence or ${chunkDuration}ms duration`);
-                    processAudioChunk();
+
+            wavesurfer = WaveSurfer.create({
+                container: '#waveform',
+                waveColor: 'rgba(255, 255, 255, 0.8)',
+                progressColor: 'rgba(255, 255, 255, 1)',
+                height: 128,
+                barWidth: 3,
+                barGap: 1,
+                barRadius: 2
+            });
+
+            record = wavesurfer.registerPlugin(
+                RecordPlugin.create({
+                    renderRecordedAudio: false,
+                    scrollingWaveform: true,
+                    continuousWaveform: true,
+                })
+            );
+        };
+
+        const loadMicrophones = async () => {
+            try {
+                const devices = await RecordPlugin.getAvailableAudioDevices();
+                if (devices.length > 0) {
+                    selectedDeviceId = devices[0].deviceId;
+                    updateDebug(`Auto-selected microphone: ${devices[0].label || 'Default'}`);
                 }
+            } catch (error) {
+                console.error('Error loading microphones:', error);
+                updateDebug('Error loading microphones');
             }
-        }
+        };
 
-        function stopAudioAnalysis() {
-            if (volumeCheckInterval) {
-                clearInterval(volumeCheckInterval);
-                volumeCheckInterval = null;
+        // Silence Detection
+        const setupSilenceDetection = async (stream) => {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const source = audioContext.createMediaStreamSource(stream);
+            analyser = audioContext.createAnalyser();
+            analyser.fftSize = 2048;
+            source.connect(analyser);
+
+            detectSilence();
+            updateDebug('Silence detection started');
+        };
+
+        const detectSilence = () => {
+            if (!isRecording) return;
+
+            try {
+                const bufferLength = analyser.frequencyBinCount;
+                const dataArray = new Uint8Array(bufferLength);
+                analyser.getByteFrequencyData(dataArray);
+
+                // Calculate RMS for volume level
+                let sum = 0;
+                for (let i = 0; i < bufferLength; i++) {
+                    sum += dataArray[i] * dataArray[i];
+                }
+                const rms = Math.sqrt(sum / bufferLength) / 255;
+
+                const currentTime = Date.now();
+                
+                // Update visual feedback
+                try {
+                    const levelElement = document.getElementById('level-value');
+                    const statusElement = document.getElementById('audio-status');
+                    const segmentElement = document.getElementById('segment-count');
+                    
+                    if (levelElement) levelElement.textContent = rms.toFixed(4);
+                    if (statusElement) statusElement.textContent = rms > silenceThreshold ? 'Sound' : 'Silence';
+                    if (segmentElement) segmentElement.textContent = segmentCounter;
+                } catch (e) {
+                    // Ignore DOM update errors
+                }
+                
+                if (rms > silenceThreshold) {
+                    lastSoundTime = currentTime;
+                    
+                    // Clear any existing silence timer since we detected sound
+                    if (silenceTimer) {
+                        clearTimeout(silenceTimer);
+                        silenceTimer = null;
+                        updateDebug('Sound detected, clearing silence timer');
+                    }
+                } else {
+                    // We're in silence - check if we should set a timer
+                    // Remove the currentAudioChunks.length > 0 condition that was causing the issue
+                    if (!silenceTimer && lastSoundTime > 0) {
+                        const silenceDuration = currentTime - lastSoundTime;
+                        if (silenceDuration >= minSilenceDuration) {
+                            updateDebug(`Setting silence timer (${silenceDuration}ms of silence detected, chunks: ${currentAudioChunks.length})`);
+                            silenceTimer = setTimeout(() => {
+                                updateDebug('Silence timer triggered, processing audio...');
+                                processSilenceDetected();
+                                silenceTimer = null;
+                            }, silenceTimeout);
+                        }
+                    }
+                }
+
+                // More frequent debug for testing
+                if (Math.random() < 0.05) { // 5% of frames
+                    updateDebug(`RMS: ${rms.toFixed(4)}, Silence: ${rms <= silenceThreshold}, Timer: ${silenceTimer ? 'Set' : 'None'}, Chunks: ${currentAudioChunks.length}, LastSound: ${lastSoundTime > 0 ? (currentTime - lastSoundTime) + 'ms ago' : 'never'}`);
+                }
+
+            } catch (error) {
+                updateDebug(`Error in detectSilence: ${error.message}`);
             }
-            
-            if (audioContext) {
-                audioContext.close();
-                audioContext = null;
+
+            if (isRecording) {
+                requestAnimationFrame(detectSilence);
             }
-            
-            analyser = null;
-            microphone = null;
-            dataArray = null;
-        }
+        };
 
-        // Process audio chunk
-        async function processAudioChunk() {
-            isProcessingChunk = true;
-            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-            const duration = (Date.now() - recordingStartTime) / 1000;
-            
-            await uploadAudio(audioBlob, duration);
-            
-            audioChunks = [];
-            lastSoundTime = Date.now();
-            isProcessingChunk = false;
-        }
+        const processSilenceDetected = async () => {
+            if (!isRecording || currentAudioChunks.length === 0) {
+                updateDebug(`Silence detected but not processing: recording=${isRecording}, chunks=${currentAudioChunks.length}`);
+                return;
+            }
 
-        // Add transcription to the list
-        function addTranscription(text, timestamp) {
-            const transcriptionDiv = document.createElement('div');
-            transcriptionDiv.className = 'bg-white/20 backdrop-blur-sm rounded-lg border border-white/30 p-4 mb-4';
-            transcriptionDiv.innerHTML = `
-                <div class="text-sm text-white/70 mb-2">${timestamp}</div>
-                <div class="text-white">${text}</div>
-            `;
-            transcriptionList.prepend(transcriptionDiv);
-        }
+            const audioDuration = Date.now() - recordingStartTime;
+            if (audioDuration < minAudioDuration) {
+                updateDebug(`Audio too short (${audioDuration}ms), skipping...`);
+                return;
+            }
 
-        // Start new conversation
-        async function startConversation() {
+            updateDebug(`Processing ${currentAudioChunks.length} audio chunks (${audioDuration}ms duration)...`);
+            
+            const audioBlob = new Blob(currentAudioChunks, { type: 'audio/webm' });
+            const audioSize = audioBlob.size;
+            
+            // Clear chunks before upload to prevent reprocessing
+            currentAudioChunks = [];
+            segmentCounter++;
+            
+            // Reset recording start time for next segment
+            recordingStartTime = Date.now();
+            lastSoundTime = Date.now(); // Reset to current time
+            
+            updateDebug(`Uploading audio blob: ${audioSize} bytes, segment ${segmentCounter}`);
+            
+            try {
+                await uploadAudio(audioBlob, segmentCounter);
+                updateDebug(`Successfully uploaded segment ${segmentCounter}`);
+            } catch (error) {
+                updateDebug(`Failed to upload segment ${segmentCounter}: ${error.message}`);
+            }
+        };
+
+        // Recording Functions
+        const startRecording = async () => {
+            try {
+                if (!selectedDeviceId) {
+                    updateDebug('No microphone available');
+                    statusText.textContent = 'No microphone available';
+                    return;
+                }
+
+                mainButton.disabled = true;
+                statusText.textContent = 'Starting recording...';
+
+                // Start WaveSurfer recording
+                await record.startRecording({ deviceId: selectedDeviceId });
+                
+                // Get media stream for silence detection
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    audio: { 
+                        deviceId: { exact: selectedDeviceId },
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        sampleRate: 44100
+                    }
+                });
+
+                // Setup MediaRecorder for audio chunks
+                mediaRecorder = new MediaRecorder(stream, {
+                    mimeType: 'audio/webm;codecs=opus'
+                });
+                
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0) {
+                        currentAudioChunks.push(event.data);
+                    }
+                };
+                
+                mediaRecorder.start(100); // Collect data every 100ms
+
+                // Setup silence detection
+                await setupSilenceDetection(stream);
+
+                isRecording = true;
+                recordingStartTime = Date.now();
+                lastSoundTime = Date.now();
+                
+                mainButton.textContent = '⏹️ Stop Recording';
+                mainButton.classList.add('button-recording', 'recording-pulse');
+                mainButton.disabled = false;
+                recordingStatus.classList.remove('hidden');
+                statusText.textContent = 'Recording in progress...';
+                
+                timerInterval = setInterval(updateTimer, 1000);
+                updateDebug('Recording started');
+
+            } catch (error) {
+                console.error('Recording error:', error);
+                updateDebug(`Recording error: ${error.message}`);
+                statusText.textContent = 'Error starting recording';
+                mainButton.disabled = false;
+            }
+        };
+
+        const stopRecording = async () => {
+            try {
+                isRecording = false;
+                
+                if (silenceTimer) {
+                    clearTimeout(silenceTimer);
+                    silenceTimer = null;
+                }
+
+                if (timerInterval) {
+                    clearInterval(timerInterval);
+                    timerInterval = null;
+                }
+
+                if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                    mediaRecorder.stop();
+                }
+
+                if (audioContext) {
+                    await audioContext.close();
+                    audioContext = null;
+                }
+
+                record.stopRecording();
+                
+                // Process any remaining audio
+                if (currentAudioChunks.length > 0) {
+                    const finalBlob = new Blob(currentAudioChunks, { type: 'audio/webm' });
+                    segmentCounter++;
+                    await uploadAudio(finalBlob, segmentCounter);
+                    currentAudioChunks = [];
+                }
+
+                mainButton.textContent = '🎤 Start Recording';
+                mainButton.classList.remove('button-recording', 'recording-pulse');
+                recordingStatus.classList.add('hidden');
+                statusText.textContent = 'Processing...';
+                
+                updateDebug('Recording stopped');
+
+            } catch (error) {
+                console.error('Stop recording error:', error);
+                updateDebug(`Stop recording error: ${error.message}`);
+            }
+        };
+
+        // API Functions
+        const startConversation = async () => {
             try {
                 updateDebug('Starting new conversation...');
                 statusText.textContent = 'Starting conversation...';
@@ -341,92 +532,14 @@
                 updateDebug(`Error: ${error.message}`);
                 statusText.textContent = 'Error starting conversation';
             }
-        }
+        };
 
-        // Start recording
-        async function startRecording() {
-            try {
-                updateDebug('Requesting microphone access...');
-                statusText.textContent = 'Requesting microphone access...';
-                
-                const stream = await navigator.mediaDevices.getUserMedia({ 
-                    audio: {
-                        echoCancellation: true,
-                        noiseSuppression: true,
-                        sampleRate: 44100
-                    } 
-                });
-                
-                updateDebug('Microphone access granted');
-                
-                audioChunks = [];
-                mediaRecorder = new MediaRecorder(stream, {
-                    mimeType: 'audio/webm;codecs=opus'
-                });
-                
-                mediaRecorder.ondataavailable = (event) => {
-                    if (event.data.size > 0) {
-                        audioChunks.push(event.data);
-                    }
-                };
-                
-                mediaRecorder.onstop = async () => {
-                    updateDebug('Recording stopped, processing audio...');
-                    statusText.textContent = 'Processing audio...';
-                    
-                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-                    const duration = (Date.now() - recordingStartTime) / 1000;
-                    
-                    await uploadAudio(audioBlob, duration);
-                    
-                    stream.getTracks().forEach(track => track.stop());
-                    stopAudioAnalysis();
-                };
-                
-                mediaRecorder.start();
-                recordingStartTime = Date.now();
-                lastSoundTime = Date.now();
-                isRecording = true;
-                
-                startAudioAnalysis(stream);
-                
-                mainButton.textContent = '⏹️ Stop Recording';
-                mainButton.classList.add('button-recording', 'recording-pulse');
-                recordingStatus.classList.remove('hidden');
-                statusText.textContent = 'Recording in progress...';
-                
-                timerInterval = setInterval(updateTimer, 1000);
-                updateDebug('Recording started');
-            } catch (error) {
-                updateDebug(`Error starting recording: ${error.message}`);
-                statusText.textContent = 'Error starting recording';
-                console.error('Error starting recording:', error);
-            }
-        }
-
-        // Stop recording
-        async function stopRecording() {
-            if (mediaRecorder && isRecording) {
-                mediaRecorder.stop();
-                isRecording = false;
-                clearInterval(timerInterval);
-
-                mainButton.textContent = '🎤 Start Recording';
-                mainButton.classList.remove('button-recording', 'recording-pulse');
-                recordingStatus.classList.add('hidden');
-                statusText.textContent = 'Processing...';
-
-                updateDebug('Recording stopped');
-            }
-        }
-
-        // Upload audio
-        async function uploadAudio(audioBlob, duration) {
+        const uploadAudio = async (audioBlob, segmentNumber) => {
             try {
                 const formData = new FormData();
                 formData.append('audio', audioBlob, 'recording.webm');
                 formData.append('thread_id', currentThreadId);
-                formData.append('duration', duration);
+                formData.append('duration', (Date.now() - recordingStartTime) / 1000);
 
                 const response = await fetch('/api/conversation/upload-audio', {
                     method: 'POST',
@@ -441,15 +554,28 @@
 
                 if (data.success) {
                     addTranscription(data.transcription, new Date().toLocaleTimeString());
-                    statusText.textContent = 'Transcription complete';
+                    if (!isRecording) {
+                        statusText.textContent = 'Transcription complete';
+                    }
                 } else {
                     statusText.textContent = 'Failed to process audio';
+                    updateDebug('Failed to process audio');
                 }
             } catch (error) {
                 updateDebug(`Error uploading audio: ${error.message}`);
                 statusText.textContent = 'Error processing audio';
             }
-        }
+        };
+
+        const addTranscription = (text, timestamp) => {
+            const transcriptionDiv = document.createElement('div');
+            transcriptionDiv.className = 'bg-white/20 backdrop-blur-sm rounded-lg border border-white/30 p-4 mb-4 transcription-item';
+            transcriptionDiv.innerHTML = `
+                <div class="text-sm text-white/70 mb-2">${timestamp}</div>
+                <div class="text-white">${text}</div>
+            `;
+            transcriptionList.prepend(transcriptionDiv);
+        };
 
         // Event Listeners
         mainButton.addEventListener('click', async () => {
@@ -467,7 +593,13 @@
         });
 
         // Initialize
-        startConversation();
+        const init = async () => {
+            await setupWaveSurfer();
+            await loadMicrophones();
+            await startConversation();
+        };
+
+        init();
     </script>
 </body>
 </html>
