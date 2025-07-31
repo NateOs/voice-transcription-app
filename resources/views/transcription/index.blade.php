@@ -171,10 +171,7 @@
         <pre id="debug-content" class="text-xs whitespace-pre-wrap max-h-32 overflow-y-auto"></pre>
     </div>
     
-    <!-- Toggle Debug Button -->
-    <button id="toggle-debug" class="fixed bottom-4 left-4 bg-white/20 text-white p-2 rounded-full hover:bg-white/30 transition-colors">
-        🐛
-    </button>
+   
 
     <script type="module">
         import WaveSurfer from 'https://cdnjs.cloudflare.com/ajax/libs/wavesurfer.js/7.7.2/wavesurfer.esm.min.js'
@@ -197,13 +194,16 @@
         let audioContext = null;
         let analyser = null;
         let silenceTimer = null;
-        let silenceThreshold = 0.005; // Lower threshold (was 0.01)
-        let silenceTimeout = 1500; // Shorter timeout (was 2000ms)
-        let minAudioDuration = 500; // Minimum audio duration before processing
-        let minSilenceDuration = 800; // Minimum silence before processing
+let silenceThreshold = 0.05; // Lower threshold for easier silence detection
+let silenceTimeout = 1000; // Even shorter timeout for faster silence trigger
+let minAudioDuration = 300; // Lower minimum audio duration
+let minSilenceDuration = 300; // Lower minimum silence before processing
         let lastSoundTime = 0;
         let recordingStartTime = null;
-        let timerInterval = null;
+let timerInterval = null;
+let wasSilent = false; // Track previous silence state
+let soundDetectedRecently = false; // Track if sound was detected in the last interval
+let periodicAudioInterval = null;
 
         // DOM Elements
         const mainButton = document.getElementById('main-button');
@@ -211,16 +211,9 @@
         const statusText = document.getElementById('status-text');
         const timerSpan = document.getElementById('timer');
         const transcriptionList = document.getElementById('transcription-list');
-        const debugContent = document.getElementById('debug-content');
-        const debugPanel = document.getElementById('debug-panel');
-        const toggleDebugBtn = document.getElementById('toggle-debug');
+      
 
-        // Utility Functions
-        function updateDebug(message) {
-            const timestamp = new Date().toLocaleTimeString();
-            debugContent.textContent += `[${timestamp}] ${message}\n`;
-            debugContent.scrollTop = debugContent.scrollHeight;
-        }
+     
 
         function formatTime(seconds) {
             const mins = Math.floor(seconds / 60);
@@ -266,11 +259,11 @@
                 const devices = await RecordPlugin.getAvailableAudioDevices();
                 if (devices.length > 0) {
                     selectedDeviceId = devices[0].deviceId;
-                    updateDebug(`Auto-selected microphone: ${devices[0].label || 'Default'}`);
+                    console.log(`Auto-selected microphone: ${devices[0].label || 'Default'}`);
                 }
             } catch (error) {
                 console.error('Error loading microphones:', error);
-                updateDebug('Error loading microphones');
+                console.log('Error loading microphones');
             }
         };
 
@@ -283,7 +276,7 @@
             source.connect(analyser);
 
             detectSilence();
-            updateDebug('Silence detection started');
+            console.log('Silence detection started');
         };
 
         const detectSilence = () => {
@@ -317,23 +310,32 @@
                 }
                 
                 if (rms > silenceThreshold) {
+                    soundDetectedRecently = true;
+                    if (wasSilent) {
+                        // Transition from silence to sound
+                        console.log('Sound detected');
+                        wasSilent = false;
+                    }
                     lastSoundTime = currentTime;
-                    
                     // Clear any existing silence timer since we detected sound
                     if (silenceTimer) {
                         clearTimeout(silenceTimer);
                         silenceTimer = null;
-                        updateDebug('Sound detected, clearing silence timer');
+                        console.log('Sound detected, clearing silence timer');
                     }
                 } else {
+                    if (!wasSilent) {
+                        // Transition from sound to silence
+                        console.log('Silence detected');
+                        wasSilent = true;
+                    }
                     // We're in silence - check if we should set a timer
-                    // Remove the currentAudioChunks.length > 0 condition that was causing the issue
                     if (!silenceTimer && lastSoundTime > 0) {
                         const silenceDuration = currentTime - lastSoundTime;
                         if (silenceDuration >= minSilenceDuration) {
-                            updateDebug(`Setting silence timer (${silenceDuration}ms of silence detected, chunks: ${currentAudioChunks.length})`);
+                            console.log(`Setting silence timer (${silenceDuration}ms of silence detected, chunks: ${currentAudioChunks.length})`);
                             silenceTimer = setTimeout(() => {
-                                updateDebug('Silence timer triggered, processing audio...');
+                                console.log('Silence timer triggered, processing audio...');
                                 processSilenceDetected();
                                 silenceTimer = null;
                             }, silenceTimeout);
@@ -343,11 +345,11 @@
 
                 // More frequent debug for testing
                 if (Math.random() < 0.05) { // 5% of frames
-                    updateDebug(`RMS: ${rms.toFixed(4)}, Silence: ${rms <= silenceThreshold}, Timer: ${silenceTimer ? 'Set' : 'None'}, Chunks: ${currentAudioChunks.length}, LastSound: ${lastSoundTime > 0 ? (currentTime - lastSoundTime) + 'ms ago' : 'never'}`);
+                    console.log(`RMS: ${rms.toFixed(4)}, Silence: ${rms <= silenceThreshold}, Timer: ${silenceTimer ? 'Set' : 'None'}, Chunks: ${currentAudioChunks.length}, LastSound: ${lastSoundTime > 0 ? (currentTime - lastSoundTime) + 'ms ago' : 'never'}`);
                 }
 
             } catch (error) {
-                updateDebug(`Error in detectSilence: ${error.message}`);
+                console.log(`Error in detectSilence: ${error.message}`);
             }
 
             if (isRecording) {
@@ -357,17 +359,17 @@
 
         const processSilenceDetected = async () => {
             if (!isRecording || currentAudioChunks.length === 0) {
-                updateDebug(`Silence detected but not processing: recording=${isRecording}, chunks=${currentAudioChunks.length}`);
+                console.log(`Silence detected but not processing: recording=${isRecording}, chunks=${currentAudioChunks.length}`);
                 return;
             }
 
             const audioDuration = Date.now() - recordingStartTime;
             if (audioDuration < minAudioDuration) {
-                updateDebug(`Audio too short (${audioDuration}ms), skipping...`);
+                console.log(`Audio too short (${audioDuration}ms), skipping...`);
                 return;
             }
 
-            updateDebug(`Processing ${currentAudioChunks.length} audio chunks (${audioDuration}ms duration)...`);
+            console.log(`Processing ${currentAudioChunks.length} audio chunks (${audioDuration}ms duration)...`);
             
             const audioBlob = new Blob(currentAudioChunks, { type: 'audio/webm' });
             const audioSize = audioBlob.size;
@@ -380,13 +382,13 @@
             recordingStartTime = Date.now();
             lastSoundTime = Date.now(); // Reset to current time
             
-            updateDebug(`Uploading audio blob: ${audioSize} bytes, segment ${segmentCounter}`);
+            console.log(`Uploading audio blob: ${audioSize} bytes, segment ${segmentCounter}`);
             
             try {
                 await uploadAudio(audioBlob, segmentCounter);
-                updateDebug(`Successfully uploaded segment ${segmentCounter}`);
+                console.log(`Successfully uploaded segment ${segmentCounter}`);
             } catch (error) {
-                updateDebug(`Failed to upload segment ${segmentCounter}: ${error.message}`);
+                console.log(`Failed to upload segment ${segmentCounter}: ${error.message}`);
             }
         };
 
@@ -394,7 +396,7 @@
         const startRecording = async () => {
             try {
                 if (!selectedDeviceId) {
-                    updateDebug('No microphone available');
+                    console.log('No microphone available');
                     statusText.textContent = 'No microphone available';
                     return;
                 }
@@ -434,7 +436,19 @@
                 isRecording = true;
                 recordingStartTime = Date.now();
                 lastSoundTime = Date.now();
-                
+                soundDetectedRecently = false;
+                // Start periodic audio upload every 5 seconds
+                periodicAudioInterval = setInterval(async () => {
+                    if (isRecording && soundDetectedRecently && currentAudioChunks.length > 0) {
+                        console.log('Periodic: Sound detected in last 5s, sending audio for transcription.');
+                        await processSilenceDetected();
+                        soundDetectedRecently = false;
+                    } else {
+                        // No sound detected, skip upload
+                        soundDetectedRecently = false;
+                    }
+                }, 5000);
+
                 mainButton.textContent = '⏹️ Stop Recording';
                 mainButton.classList.add('button-recording', 'recording-pulse');
                 mainButton.disabled = false;
@@ -442,11 +456,11 @@
                 statusText.textContent = 'Recording in progress...';
                 
                 timerInterval = setInterval(updateTimer, 1000);
-                updateDebug('Recording started');
+                console.log('Recording started');
 
             } catch (error) {
                 console.error('Recording error:', error);
-                updateDebug(`Recording error: ${error.message}`);
+                console.log(`Recording error: ${error.message}`);
                 statusText.textContent = 'Error starting recording';
                 mainButton.disabled = false;
             }
@@ -455,7 +469,10 @@
         const stopRecording = async () => {
             try {
                 isRecording = false;
-                
+                if (periodicAudioInterval) {
+                    clearInterval(periodicAudioInterval);
+                    periodicAudioInterval = null;
+                }
                 if (silenceTimer) {
                     clearTimeout(silenceTimer);
                     silenceTimer = null;
@@ -476,7 +493,6 @@
                 }
 
                 record.stopRecording();
-                
                 // Process any remaining audio
                 if (currentAudioChunks.length > 0) {
                     const finalBlob = new Blob(currentAudioChunks, { type: 'audio/webm' });
@@ -490,18 +506,18 @@
                 recordingStatus.classList.add('hidden');
                 statusText.textContent = 'Processing...';
                 
-                updateDebug('Recording stopped');
+                console.log('Recording stopped');
 
             } catch (error) {
                 console.error('Stop recording error:', error);
-                updateDebug(`Stop recording error: ${error.message}`);
+                console.log(`Stop recording error: ${error.message}`);
             }
         };
 
         // API Functions
         const startConversation = async () => {
             try {
-                updateDebug('Starting new conversation...');
+                console.log('Starting new conversation...');
                 statusText.textContent = 'Starting conversation...';
                 
                 const response = await fetch('/api/conversation/start', {
@@ -514,7 +530,7 @@
                 });
                 
                 const data = await response.json();
-                updateDebug(`Response: ${JSON.stringify(data)}`);
+                console.log(`Response: ${JSON.stringify(data)}`);
                 
                 if (data.success) {
                     currentThreadId = data.thread_id;
@@ -523,13 +539,13 @@
                     mainButton.textContent = '🎤 Start Recording';
                     
                     transcriptionList.innerHTML = '';
-                    updateDebug('Conversation started successfully');
+                    console.log('Conversation started successfully');
                 } else {
-                    updateDebug('Failed to start conversation');
+                    console.log('Failed to start conversation');
                     statusText.textContent = 'Failed to start conversation';
                 }
             } catch (error) {
-                updateDebug(`Error: ${error.message}`);
+                console.log(`Error: ${error.message}`);
                 statusText.textContent = 'Error starting conversation';
             }
         };
@@ -550,7 +566,7 @@
                 });
 
                 const data = await response.json();
-                updateDebug(`Upload response: ${JSON.stringify(data)}`);
+                console.log(`Upload response: ${JSON.stringify(data)}`);
 
                 if (data.success) {
                     addTranscription(data.transcription, new Date().toLocaleTimeString());
@@ -559,10 +575,10 @@
                     }
                 } else {
                     statusText.textContent = 'Failed to process audio';
-                    updateDebug('Failed to process audio');
+                    console.log('Failed to process audio');
                 }
             } catch (error) {
-                updateDebug(`Error uploading audio: ${error.message}`);
+                console.log(`Error uploading audio: ${error.message}`);
                 statusText.textContent = 'Error processing audio';
             }
         };
@@ -588,9 +604,7 @@
             }
         });
 
-        toggleDebugBtn.addEventListener('click', () => {
-            debugPanel.classList.toggle('hidden');
-        });
+      
 
         // Initialize
         const init = async () => {
